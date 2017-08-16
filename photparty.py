@@ -6,69 +6,12 @@
 #Star magnitudes are obtained using square apertures after being background subtracted for the region specific to the star
 #By Teresa Symons 2016
 
-#USER-DEFINED PARAMETERS AND SETTINGS:
-
-#Define path to folder containing files to be run
-#All fits or fit files will be automatically included
-#Output files will also be placed into this folder
-path = '/Users/Andromeda/PycharmProjects/files'
-
-#Header key words/values:
-#If no keyword exists, enter 'NONE' and define value instead
-#Exposure time
-exptimekword = 'EXP_TIME'
-exptime = 5
-#Filter
-filterkword = 'FILTER'
-filter = 'b'
-#Airmass
-airmasskword = 'AIRMASS'
-airmass = 100
-#Gain
-gainkword = 'NONE'
-gain = 1
-
-#Parameters for background sampling:
-#Width/length in pixels of box for random background sampling to determine background value
-backsize = 5
-#Number of random background samples to take
-backnum = 1000
-
-#Selection of area of each frame to analyze:
-#If area of interest is in the central 50% of frame, select 'half'
-#If area of interest is entire frame, select 'whole'
-#If custom area of interest is desired, select 'custom' and define range of X and Y coordinates with (1,1) as the bottom left corner of the frame
-framearea = 'custom'
-xlow = 900
-xhigh = 1500
-ylow = 1200
-yhigh = 1750
-
-#Pixel rejection:
-#Select pixel value above which values will be zeroed out
-uplim = 45000
-#Select number of sigma below which negative pixel values will be zeroed out
-#Example: lowsig = 3 means pixel values less than -3*inset standard deviation will become 0
-lowsig = 3
-
-#Detection level:
-#Select number of standard deviations above background required for star detection
-sig = 25
-
-#Suppress or display plots of summed rows/columns with detection level marked (on or off)
-plotdetect = 'on'
-
-#Suppress or display plots of fits image with detected star apertures overlaid (on or off)
-plotstars = 'on'
-
-#Square-aperture size:
-#Select the half-width of the box used for photometry
-boxhw = 25
-
-#END USER-DEFINED PARAMETERS
+#from config import *
 
 #Import math, plotting, extraneous functions, and fits file handling:
 import numpy as np
+import numpy.ma as ma
+import random as rand
 import os
 from astropy.io import fits
 from background import background
@@ -79,6 +22,43 @@ from starphot import starphot
 from astropy.table import Table
 import matplotlib.patches as patches
 import matplotlib.pylab as plt
+
+
+parameters = {}
+raw_params = open('photparty.param', 'r')
+param_lines = raw_params.readlines()
+for entry in param_lines:
+    if entry[0] != '#' and entry[0] != '\n' and entry[0] != '\r':
+        tempstring = entry.split(':')
+        param_name = str(tempstring[0])
+        param_value = str(tempstring[1].strip())
+        parameters[param_name] = param_value
+raw_params.close()
+
+path = parameters['path']
+exptimekword = parameters['exptimekword']
+exptime = int(parameters['exptime'])
+filterkword = parameters['filterkword']
+filter = parameters['filter']
+airmasskword = parameters['airmasskword']
+airmass = int(parameters['airmass'])
+gainkword = parameters['gainkword']
+gain = int(parameters['gain'])
+backsize = int(parameters['backsize'])
+backnum = int(parameters['backnum'])
+framearea = parameters['framearea']
+xlow = int(parameters['xlow'])
+ylow = int(parameters['ylow'])
+xhigh = int(parameters['xhigh'])
+yhigh = int(parameters['yhigh'])
+uplim = int(parameters['uplim'])
+lowsig = int(parameters['lowsig'])
+sig = int(parameters['sig'])
+plotdetect = parameters['plotdetect']
+plotstars = parameters['plotstars']
+boxhw = int(parameters['boxhw'])
+defectcol = list(map(int, parameters['defectcol'].split()))
+defectrow = list(map(int, parameters['defectrow'].split()))
 
 #Create list of files to run based on defined path, ignoring all files that are not fit or fits
 files = [f for f in os.listdir(path) if any([f.endswith('fit'), f.endswith('fits')]) if not f.startswith('.')]
@@ -102,8 +82,18 @@ for i in files:
 
     #Retrieve data, exposure time, airmass, and filter from fits file:
     Data = image[0].data
+    maskedData = Data
+    if len(defectcol) > 0:
+        maskarray = np.zeros_like(Data)
+        maskarray[:, defectcol] = 1
+        maskedData = ma.masked_array(Data, maskarray)
+    if len(defectrow) > 0:
+        maskarray = np.zeros_like(Data)
+        maskarray[defectrow] = 1
+        maskedData = ma.masked_array(Data, maskarray)
+
     if exptimekword == 'NONE':
-        etime = exptime
+        etime = int(exptime)
     else:
         etime = image[0].header[exptimekword]
     if filterkword == 'NONE':
@@ -111,17 +101,17 @@ for i in files:
     else:
         filter = image[0].header[filterkword]
     if airmasskword == 'NONE':
-        airmass = airmass
+        airmass = int(airmass)
     else:
         airmass = image[0].header[airmasskword]
     if gainkword == 'NONE':
-        gain = gain
+        gain = int(gain)
     else:
         gain = image[0].header[gainkword]
 
     #Compute background sky level through random median sampling:
     #Inputs: data array, nxn size of random subarray to use for sampling, and number of desired sampling iterations
-    back, skyvals = background(Data,backsize,backnum)
+    back, skyvals = background(maskedData,backsize,backnum)
 
     #Create desired inset of total data array:
     if framearea == 'half':
@@ -144,6 +134,56 @@ for i in files:
     if framearea == 'custom':
         inset = Data[ylow-1:yhigh-1,xlow-1:xhigh-1]
         mid = 0
+    # Replace defective columns and rows with local medians
+    # The median is taken for 5 rows above and 5 below the defective row/col, and the std dev is calculated as well.
+    # Each pixel of the defective row/col is replaced by this median +/- a multiple of the sigma
+    # If defective pixel is near edge of frame, will look further in opposite direction when getting median etc.
+    buffersize = 5
+    lowwidth, upwidth = buffersize, buffersize
+    if len(defectcol) > 0:
+        for col in defectcol:
+            if framearea == 'half':
+                col -= 511
+            elif framearea == 'custom':
+                col -= (xlow -1)
+            if col < 0 or col > len(inset):
+                continue
+            for i in range(buffersize):
+                if col + upwidth > len(inset[0]):
+                    upwidth -= 1
+                    lowwidth += 1
+                elif col - lowwidth < 0:
+                    lowwidth -= 1
+                    upwidth += 1
+            under = inset[:, (col - lowwidth):col]
+            over = inset[:, (col + 1):(col + 1 + upwidth)]
+            tot = np.hstack((under, over))
+            median = np.median(tot)
+            std = np.std(tot)
+            for i in range(len(inset)):
+                inset[i][col] = (median + std * rand.uniform(-3, 3))
+    if len(defectrow) > 0:
+        for row in defectrow:
+            if framearea == 'half':
+                row -= 511
+            elif framearea == 'custom':
+                row -= (ylow -1)
+            if row < 0 or row > len(inset[0]):
+                continue
+            for i in range(buffersize):
+                if row + upwidth > len(inset):
+                    upwidth -= 1
+                    lowwidth += 1
+                elif row - lowwidth < 0:
+                    lowwidth -= 1
+                    upwidth += 1
+            under = inset[(row - lowwidth):row]
+            over = inset[(row + 1):(row + 1 + upwidth)]
+            tot = np.vstack((under, over))
+            median = np.median(tot)
+            std = np.std(tot)
+            for i in range(len(inset[0])):
+                inset[row][i] = (median + std * rand.uniform(-3, 3))
 
     #Blanket removal of bad pixels above 45000 and 3*standard deviation below 0:
     inset[inset>uplim] = 0
@@ -153,7 +193,6 @@ for i in files:
     #Calculate sky background for specific inset:
     #Inputs: inset data array, nxn size of random subarray used for sampling, number of desired sampling iterations
     insetback, insetskyvals = background(inset,backsize,backnum)
-
     #Compute summed row and column values for desired array by number of bins:
     #Inputs: inset data array, number of bins desired
     rowsum, colsum = binsum(inset,1)
