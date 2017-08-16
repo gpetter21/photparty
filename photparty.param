@@ -1,0 +1,67 @@
+# USER-DEFINED PARAMETERS AND SETTINGS:
+
+# Define path to folder containing files to be run
+# All fits or fit files will be automatically included
+# Output files will also be placed into this folder
+path: /Users/graysonpetter/Desktop/TestPhotParty
+
+# Header key words/values:
+# If no keyword exists, enter NONE and define value instead
+# Exposure time
+exptimekword: EXP_TIME
+exptime: 5
+# Filter
+filterkword: FILTER
+filter: b
+# Airmass
+airmasskword: AIRMASS
+airmass: 100
+# Gain
+gainkword: NONE
+gain: 1
+
+# Parameters for background sampling:
+# Width/length in pixels of box for random background sampling to determine background value
+backsize: 5
+# Number of random background samples to take
+backnum: 1000
+
+# Selection of area of each frame to analyze:
+# If area of interest is in the central 50% of frame, select half
+# If area of interest is entire frame, select whole
+# If custom area of interest is desired, select custom and define range of X and Y coordinates with (1,1) as the bottom left corner of the frame
+framearea: custom
+xlow: 1100
+xhigh: 1700
+ylow: 1200
+yhigh: 1750
+
+# Pixel rejection:
+# Select pixel value above which values will be zeroed out
+uplim: 45000
+# Select number of sigma below which negative pixel values will be zeroed out
+# Example:  lowsig: 3 means pixel values less than -3*inset standard deviation will become 0
+lowsig: 3
+
+# Detection level:
+# Select number of standard deviations above background required for star detection
+sig: 30
+
+# Suppress or display plots of summed rows/columns with detection level marked (on or off)
+plotdetect: on
+
+# Suppress or display plots of fits image with detected star apertures overlaid (on or off)
+plotstars: on
+
+# Square-aperture size:
+# Select the half-width of the box used for photometry
+boxhw: 25
+
+# Pixel columns or rows with invalid data, separated by spaces
+# enter values with respect to whole 2048x2048 frame, not custom frame size
+# if 'first' column is faulty, use 0, not 1
+defectrow:
+defectcol: 1631
+
+
+# END USER-DEFINED PARAMETERS
